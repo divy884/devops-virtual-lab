@@ -1,0 +1,15 @@
+---
+- name: Configure local DevOps environment
+  hosts: local
+  connection: local
+  gather_facts: yes
+
+  tasks:
+    - name: Verify Docker installation
+      command: docker --version
+      register: docker_version
+      changed_when: false
+
+    - name: Display Docker version
+      debug:
+        msg: "{{ docker_version.stdout }}"
