@@ -1,0 +1,25 @@
+name: DevOps CI/CD Pipeline
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build-and-validate:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: docker build -t devops-lab-app ./app
+
+      - name: Verify Kubernetes manifests
+        run: |
+          grep -q "kind: Deployment" k8s/deployment.yml
+          grep -q "kind: Service" k8s/service.yml
+
+      - name: CI/CD validation complete
+        run: echo "Docker build and Kubernetes manifest validation successful"
