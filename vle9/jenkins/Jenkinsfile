@@ -1,0 +1,80 @@
+pipeline {
+    agent any
+
+    options {
+        timestamps()
+        disableConcurrentBuilds()
+    }
+
+    environment {
+        PATH = "/opt/homebrew/bin:/usr/local/bin:${env.PATH}"
+        IMAGE_NAME = 'medisecure:v4'
+        APP_DIR = 'vle9/healthcare-app'
+        NAMESPACE = 'medisecure'
+    }
+
+    stages {
+        stage('1. Build Docker Image') {
+            steps {
+                dir("${APP_DIR}") {
+                    sh 'docker build -t ${IMAGE_NAME} .'
+                }
+            }
+        }
+
+        stage('2. SAST - SonarQube') {
+            steps {
+                withSonarQubeEnv('MediSecure-SonarQube') {
+                    dir("${APP_DIR}") {
+                        sh 'sonar-scanner -Dsonar.token=$SONAR_AUTH_TOKEN'
+                    }
+                }
+            }
+        }
+
+        stage('3. Container Security - Trivy') {
+            steps {
+                sh 'trivy image --severity HIGH,CRITICAL --exit-code 0 ${IMAGE_NAME}'
+            }
+        }
+
+        stage('4. DAST - OWASP ZAP') {
+            steps {
+                sh """
+                    docker run --rm -t \
+                      -v "$WORKSPACE/vle9/security/zap-reports:/zap/wrk/:rw" \
+                      ghcr.io/zaproxy/zaproxy:stable \
+                      zap-baseline.py \
+                      -t http://host.docker.internal:8081 \
+                      -I \
+                      -r jenkins-zap-report.html
+                """
+            }
+        }
+
+        stage('5. Kubernetes Deployment') {
+            steps {
+                sh '''
+                    minikube image load ${IMAGE_NAME}
+                    kubectl apply -f vle9/kubernetes/medisecure-deployment.yaml
+                    kubectl apply -f vle9/kubernetes/medisecure-rbac.yaml
+                    kubectl rollout restart deployment/medisecure -n ${NAMESPACE}
+                    kubectl rollout status deployment/medisecure -n ${NAMESPACE} --timeout=120s
+                    kubectl get pods -n ${NAMESPACE}
+                '''
+            }
+        }
+    }
+
+    post {
+        success {
+            echo 'MediSecure DevSecOps pipeline completed successfully!'
+        }
+        failure {
+            echo 'Pipeline failed. Check the stage logs for details.'
+        }
+        always {
+            echo 'MediSecure security pipeline execution finished.'
+        }
+    }
+}
