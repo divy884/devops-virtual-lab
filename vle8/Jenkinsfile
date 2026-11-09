@@ -1,0 +1,41 @@
+pipeline {
+    agent any
+
+    environment {
+        PATH = "/opt/homebrew/bin:/opt/homebrew/sbin:/usr/bin:/bin:/usr/sbin:/sbin"
+    }
+
+    stages {
+        stage('Build Docker Images') {
+            steps {
+                sh 'docker build -t blue-app:v1 ./vle8/blue'
+                sh 'docker build -t green-app:v2 ./vle8/green'
+                sh 'minikube image load blue-app:v1'
+                sh 'minikube image load green-app:v2'
+            }
+        }
+
+        stage('Deploy Blue and Green') {
+            steps {
+                sh 'kubectl apply -f vle8/k8s/blue-deployment.yaml'
+                sh 'kubectl apply -f vle8/k8s/green-deployment.yaml'
+                sh 'kubectl apply -f vle8/k8s/service.yaml'
+                sh 'kubectl rollout status deployment/myapp-blue'
+                sh 'kubectl rollout status deployment/myapp-green'
+            }
+        }
+
+        stage('Manual Approval') {
+            steps {
+                input message: 'Approve switching traffic from Blue to Green?'
+            }
+        }
+
+        stage('Switch Traffic to Green') {
+            steps {
+                sh '''kubectl patch service myapp-service --type=merge -p '{"spec":{"selector":{"app":"myapp","color":"green"}}}' '''
+                sh 'kubectl get endpoints myapp-service'
+            }
+        }
+    }
+}
